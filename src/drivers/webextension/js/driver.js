@@ -10,9 +10,15 @@ const wappalyzer = new Wappalyzer();
 var tabCache = {};
 var headersCache = {};
 var categoryOrder = [];
+var urlToTab = {};
+var tabToUrl = {};
 
 browser.tabs.onRemoved.addListener(tabId => {
   tabCache[tabId] = null;
+
+  var url = tabToUrl[tabId];
+  url && delete urlToTab[url];
+  delete tabToUrl[tabId];
 });
 
 /**
@@ -186,7 +192,9 @@ browser.webRequest.onCompleted.addListener(request => {
         break;
       case 'get_apps':
         response = {
-          tabCache:   tabCache[message.tab.id],
+          tabCache:   message.tab
+            ? tabCache[message.tab.id]
+            : tabCache[urlToTab[message.url]],
           apps:       wappalyzer.apps,
           categories: wappalyzer.categories
         };
@@ -211,12 +219,15 @@ wappalyzer.driver.log = (message, source, type) => {
 /**
  * Display apps
  */
-wappalyzer.driver.displayApps = (detected, context) => {
+wappalyzer.driver.displayApps = (detected, context, url) => {
   var tab = context.tab;
 
   tabCache[tab.id] = tabCache[tab.id] || { detected: [] };
 
   tabCache[tab.id].detected = detected;
+
+  tabToUrl[tab.id] = url;
+  urlToTab[url] = tab.id;
 
   if ( Object.keys(detected).length ) {
     getOption('dynamicIcon', true)
