@@ -59,10 +59,14 @@ if ( typeof browser !== 'undefined' && typeof document.body !== 'undefined' ) {
     })
       .then(handleDetectedApps);
 */
-  const buyButton = detectBuyButton()
-  const { priceElement, parent } = detectPrice(buyButton.node.parentElement)
-  detectProductName(parent, getOffset(priceElement).top)
-//    detectPrice()
+    function loadLib (src, onload) {
+      const script = document.createElement('script')
+      script.src = src
+      script.onload = onload
+      document.documentElement.appendChild(script)
+    }
+
+    showBar()
 
     document.documentElement.appendChild(container);
     document.documentElement.appendChild(script);
@@ -123,11 +127,12 @@ const getProductInfo = ({ url, framework }) =>
   productInfoByUrl[getDomain(url)]
   || productInfoByFramework[framework]
 
-const renderField = ({ field, value }) =>
-  `<div>
+function renderField ({ field, value }) {
+  return `<div>
     <span>${field}</span>
     <b>${value}</b>
   </div>`
+}
 
 function isElementVisible(el) {
 //-- Cross browser method to get style properties:
@@ -354,7 +359,10 @@ function detectProductName(parent, maxTop) {
 
   if (foundNode) {
     foundNode.parentElement.style.backgroundColor = 'yellow'
+    return foundNode.textContent.trim()
   }
+
+  return null
 }
 
 function detectProductName2() {
@@ -550,7 +558,163 @@ function detectPrice2() {
 //  results.forEach(({ element }) => element.style.backgroundColor = 'lime')
 }
 
-function showBar(frameworks) {
+function arrayBufferDataUri(raw) {
+  var base64 = '';
+  var encodings = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  var bytes = new Uint8Array(raw);
+  var byteLength = bytes.byteLength;
+  var byteRemainder = byteLength % 3;
+  var mainLength = byteLength - byteRemainder;
+  var a, b, c, d;
+  var chunk;
+
+  // Main loop deals with bytes in chunks of 3
+  for (var i = 0; i < mainLength; i = i + 3) {
+    // Combine the three bytes into a single integer
+    chunk = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+    // Use bitmasks to extract 6-bit segments from the triplet
+    a = (chunk & 16515072) >> 18; // 16515072 = (2^6 - 1) << 18
+    b = (chunk & 258048) >> 12; // 258048 = (2^6 - 1) << 12
+    c = (chunk & 4032) >> 6; // 4032 = (2^6 - 1) << 6
+    d = chunk & 63; // 63 = 2^6 - 1
+    // Convert the raw binary segments to the appropriate ASCII encoding
+    base64 += encodings[a] + encodings[b] + encodings[c] + encodings[d];
+  }
+
+  // Deal with the remaining bytes and padding
+  if (byteRemainder == 1) {
+    chunk = bytes[mainLength];
+    a = (chunk & 252) >> 2 // 252 = (2^6 - 1) << 2;
+    // Set the 4 least significant bits to zero
+    b = (chunk & 3) << 4 // 3 = 2^2 - 1;
+    base64 += encodings[a] + encodings[b] + '==';
+  }
+  else if (byteRemainder == 2) {
+    chunk = (bytes[mainLength] << 8) | bytes[mainLength + 1];
+    a = (chunk & 16128) >> 8 // 16128 = (2^6 - 1) << 8;
+    b = (chunk & 1008) >> 4 // 1008 = (2^6 - 1) << 4;
+    // Set the 2 least significant bits to zero
+    c = (chunk & 15) << 2 // 15 = 2^4 - 1;
+    base64 += encodings[a] + encodings[b] + encodings[c] + '=';
+  }
+
+  return base64
+}
+
+function addZero(a) {
+  return (a < 0 || a > 9 ? "" : "0") + a
+}
+
+function toISODate(date) {
+  with (date) {
+    return getFullYear()
+      + '-'+addZero(getMonth()+1)+'-'+addZero(getDate())
+      +'T'+addZero(getHours())+':'+addZero(getMinutes())+':'+addZero(getSeconds())+'.000Z'
+  }
+}
+
+function getNowTimeStamp() {
+  var b = new Date();
+  var a = new Date(b.getTime() + (b.getTimezoneOffset() * 60000));
+  return toISODate(a)
+}
+
+async function signAsync(secretKey, data) {
+  const enc = new TextEncoder('utf-8')
+
+  const key = await window.crypto.subtle.importKey(
+    'raw',
+    enc.encode(secretKey),
+    {
+      name: 'HMAC',
+      hash: { name: 'SHA-256' },
+    },
+    false,
+    ['sign']
+  )
+  const signature = await window.crypto.subtle.sign(
+    'HMAC',
+    key,
+    enc.encode(data)
+  )
+
+  return btoa(String.fromCharCode(...new Uint8Array(signature)))
+}
+
+async function showBar() {
+  const queryParams = params => Object
+    .entries(params)
+    .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+    .sort()
+    .join('&')
+
+  const secretKey = 'UgWpEOjWiD+kmVSB6t1ur/4vnXFdpAe7VmGhOAFq'
+  const signParams = async (endpoint, uri, params) => {
+    const stringToSign = `GET\n${endpoint}\n${uri}\n${params}`
+    const base64 = sign(secretKey, stringToSign)
+    const base64_2 = await signAsync(secretKey, stringToSign)
+
+    return `${params}&Signature=${encodeURIComponent(base64_2)}`
+  }
+
+  const fields = []
+
+  const buyButton = detectBuyButton()
+  const { priceElement, parent } = detectPrice(buyButton.node.parentElement)
+  const productName = detectProductName(parent, getOffset(priceElement).top)
+
+  if (productName) {
+    fields.push({field: 'name', value: productName})
+
+    const endpoint = 'webservices.amazon.com'
+    const uri = '/onca/xml'
+
+    const params = queryParams({
+      AWSAccessKeyId: 'AKIAJUI45MRHWJVMOZKA',
+      AssociateTag: 'saveey2018-20',
+      Keywords: productName.replace(/[(),]/g, ''),
+      Operation: 'ItemSearch',
+      ResponseGroup: 'ItemAttributes,Offers',
+      SearchIndex: 'All',
+      Service: 'AWSECommerceService',
+      Timestamp: getNowTimeStamp(),
+    })
+    const signedQuery = await signParams(endpoint, uri, params)
+    const response = await fetch(`https://${endpoint}${uri}?${signedQuery}`, { mode: 'cors' })
+    const text = await response.text()
+    alert(text)
+
+    if (priceElement) {
+      fields.push({field: 'price', value: priceElement.innerText.trim()})
+    }
+
+    if (fields.length) {
+      const bar = document.createElement('div')
+      Object.assign(bar.style, {
+        position: 'fixed',
+        left: '20px',
+        top: '5px',
+        border: '1px solid rgba(0,0,0,.5)',
+        borderRadius: '5px',
+        padding: '5px 20px',
+        zIndex: '1000000',
+        color: 'black',
+        backgroundColor: 'white',
+        boxShadow: '0px 0px 5px',
+        direction: 'ltr',
+        textAlign: 'left',
+      })
+
+      bar.innerHTML = fields
+        .map(renderField)
+        .join('\n')
+
+      document.body.appendChild(bar)
+    }
+  }
+}
+
+function showBar0(frameworks) {
   const forceArray = value => Array.isArray(value) ? value : [value]
   const extractTextFromSelector = selector => {
     const elementWithText = forceArray(selector)
@@ -598,8 +762,6 @@ function showBar(frameworks) {
 
 
     document.body.appendChild(bar)
-
-
   }
 }
 
@@ -609,4 +771,170 @@ function log(message) {
     message,
     source: 'content.js'
   });
+}
+
+/* A JavaScript implementation of the Secure Hash Standard
+ * Version 0.3 Copyright Angel Marin 2003-2004 - http://anmar.eu.org/
+ * Distributed under the BSD License
+ * Some bits taken from Paul Johnston's SHA-1 implementation
+ */
+/* bits per input character. 8 - ASCII; 16 - Unicode      */
+const hexcase = 0
+/* hex output format. 0 - lowercase; 1 - uppercase        */
+/* base-64 pad character. "=" for strict RFC compliance   */
+
+function safe_add (x, y) {
+  var lsw = (x & 0xFFFF) + (y & 0xFFFF);
+  var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
+  return (msw << 16) | (lsw & 0xFFFF);
+}
+
+function S (X, n) {return ( X >>> n ) | (X << (32 - n));}
+
+function R (X, n) {return ( X >>> n );}
+
+function Ch(x, y, z) {return ((x & y) ^ ((~x) & z));}
+
+function Maj(x, y, z) {return ((x & y) ^ (x & z) ^ (y & z));}
+
+function Sigma0256(x) {return (S(x, 2) ^ S(x, 13) ^ S(x, 22));}
+
+function Sigma1256(x) {return (S(x, 6) ^ S(x, 11) ^ S(x, 25));}
+
+function Gamma0256(x) {return (S(x, 7) ^ S(x, 18) ^ R(x, 3));}
+
+function Gamma1256(x) {return (S(x, 17) ^ S(x, 19) ^ R(x, 10));}
+
+function Sigma0512(x) {return (S(x, 28) ^ S(x, 34) ^ S(x, 39));}
+
+function Sigma1512(x) {return (S(x, 14) ^ S(x, 18) ^ S(x, 41));}
+
+function Gamma0512(x) {return (S(x, 1) ^ S(x, 8) ^ R(x, 7));}
+
+function Gamma1512(x) {return (S(x, 19) ^ S(x, 61) ^ R(x, 6));}
+
+function core_sha256 (m, l) {
+  var K = new Array(0x428A2F98,0x71374491,0xB5C0FBCF,0xE9B5DBA5,0x3956C25B,0x59F111F1,0x923F82A4,0xAB1C5ED5,0xD807AA98,0x12835B01,0x243185BE,0x550C7DC3,0x72BE5D74,0x80DEB1FE,0x9BDC06A7,0xC19BF174,0xE49B69C1,0xEFBE4786,0xFC19DC6,0x240CA1CC,0x2DE92C6F,0x4A7484AA,0x5CB0A9DC,0x76F988DA,0x983E5152,0xA831C66D,0xB00327C8,0xBF597FC7,0xC6E00BF3,0xD5A79147,0x6CA6351,0x14292967,0x27B70A85,0x2E1B2138,0x4D2C6DFC,0x53380D13,0x650A7354,0x766A0ABB,0x81C2C92E,0x92722C85,0xA2BFE8A1,0xA81A664B,0xC24B8B70,0xC76C51A3,0xD192E819,0xD6990624,0xF40E3585,0x106AA070,0x19A4C116,0x1E376C08,0x2748774C,0x34B0BCB5,0x391C0CB3,0x4ED8AA4A,0x5B9CCA4F,0x682E6FF3,0x748F82EE,0x78A5636F,0x84C87814,0x8CC70208,0x90BEFFFA,0xA4506CEB,0xBEF9A3F7,0xC67178F2);
+  var HASH = new Array(0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19);
+  var W = new Array(64);
+  var a, b, c, d, e, f, g, h, i, j;
+  var T1, T2;
+
+  /* append padding */
+  m[l >> 5] |= 0x80 << (24 - l % 32);
+  m[((l + 64 >> 9) << 4) + 15] = l;
+
+  for ( var i = 0; i<m.length; i+=16 ) {
+    a = HASH[0];
+    b = HASH[1];
+    c = HASH[2];
+    d = HASH[3];
+    e = HASH[4];
+    f = HASH[5];
+    g = HASH[6];
+    h = HASH[7];
+
+    for ( var j = 0; j<64; j++) {
+      if (j < 16) W[j] = m[j + i];
+      else W[j] = safe_add(safe_add(safe_add(Gamma1256(W[j - 2]), W[j - 7]), Gamma0256(W[j - 15])), W[j - 16]);
+
+      T1 = safe_add(safe_add(safe_add(safe_add(h, Sigma1256(e)), Ch(e, f, g)), K[j]), W[j]);
+      T2 = safe_add(Sigma0256(a), Maj(a, b, c));
+
+      h = g;
+      g = f;
+      f = e;
+      e = safe_add(d, T1);
+      d = c;
+      c = b;
+      b = a;
+      a = safe_add(T1, T2);
+    }
+
+    HASH[0] = safe_add(a, HASH[0]);
+    HASH[1] = safe_add(b, HASH[1]);
+    HASH[2] = safe_add(c, HASH[2]);
+    HASH[3] = safe_add(d, HASH[3]);
+    HASH[4] = safe_add(e, HASH[4]);
+    HASH[5] = safe_add(f, HASH[5]);
+    HASH[6] = safe_add(g, HASH[6]);
+    HASH[7] = safe_add(h, HASH[7]);
+  }
+  return HASH;
+}
+
+function core_sha512 (m, l) {
+  var K = new Array(0x428a2f98d728ae22, 0x7137449123ef65cd, 0xb5c0fbcfec4d3b2f, 0xe9b5dba58189dbbc, 0x3956c25bf348b538, 0x59f111f1b605d019, 0x923f82a4af194f9b, 0xab1c5ed5da6d8118, 0xd807aa98a3030242, 0x12835b0145706fbe, 0x243185be4ee4b28c, 0x550c7dc3d5ffb4e2, 0x72be5d74f27b896f, 0x80deb1fe3b1696b1, 0x9bdc06a725c71235, 0xc19bf174cf692694, 0xe49b69c19ef14ad2, 0xefbe4786384f25e3, 0x0fc19dc68b8cd5b5, 0x240ca1cc77ac9c65, 0x2de92c6f592b0275, 0x4a7484aa6ea6e483, 0x5cb0a9dcbd41fbd4, 0x76f988da831153b5, 0x983e5152ee66dfab, 0xa831c66d2db43210, 0xb00327c898fb213f, 0xbf597fc7beef0ee4, 0xc6e00bf33da88fc2, 0xd5a79147930aa725, 0x06ca6351e003826f, 0x142929670a0e6e70, 0x27b70a8546d22ffc, 0x2e1b21385c26c926, 0x4d2c6dfc5ac42aed, 0x53380d139d95b3df, 0x650a73548baf63de, 0x766a0abb3c77b2a8, 0x81c2c92e47edaee6, 0x92722c851482353b, 0xa2bfe8a14cf10364, 0xa81a664bbc423001, 0xc24b8b70d0f89791, 0xc76c51a30654be30, 0xd192e819d6ef5218, 0xd69906245565a910, 0xf40e35855771202a, 0x106aa07032bbd1b8, 0x19a4c116b8d2d0c8, 0x1e376c085141ab53, 0x2748774cdf8eeb99, 0x34b0bcb5e19b48a8, 0x391c0cb3c5c95a63, 0x4ed8aa4ae3418acb, 0x5b9cca4f7763e373, 0x682e6ff3d6b2b8a3, 0x748f82ee5defb2fc, 0x78a5636f43172f60, 0x84c87814a1f0ab72, 0x8cc702081a6439ec, 0x90befffa23631e28, 0xa4506cebde82bde9, 0xbef9a3f7b2c67915, 0xc67178f2e372532b, 0xca273eceea26619c, 0xd186b8c721c0c207, 0xeada7dd6cde0eb1e, 0xf57d4f7fee6ed178, 0x06f067aa72176fba, 0x0a637dc5a2c898a6, 0x113f9804bef90dae, 0x1b710b35131c471b, 0x28db77f523047d84, 0x32caab7b40c72493, 0x3c9ebe0a15c9bebc, 0x431d67c49c100d4c, 0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817);
+  var HASH = new Array(0x6a09e667f3bcc908, 0xbb67ae8584caa73b, 0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1, 0x510e527fade682d1, 0x9b05688c2b3e6c1f, 0x1f83d9abfb41bd6b, 0x5be0cd19137e2179);
+  var W = new Array(80);
+  var a, b, c, d, e, f, g, h, i, j;
+  var T1, T2;
+
+}
+
+function str2binb (str) {
+  var bin = Array();
+  var mask = (1 << 8) - 1;
+  for(var i = 0; i < str.length * 8; i += 8)
+    bin[i>>5] |= (str.charCodeAt(i / 8) & mask) << (24 - i%32);
+  return bin;
+}
+
+function binb2str (bin) {
+  var str = "";
+  var mask = (1 << 8) - 1;
+  for(var i = 0; i < bin.length * 32; i += 8)
+    str += String.fromCharCode((bin[i>>5] >>> (24 - i%32)) & mask);
+  return str;
+}
+
+function binb2hex (binarray) {
+  var hex_tab = hexcase ? "0123456789ABCDEF" : "0123456789abcdef";
+  var str = "";
+  for(var i = 0; i < binarray.length * 4; i++)
+  {
+    str += hex_tab.charAt((binarray[i>>2] >> ((3 - i%4)*8+4)) & 0xF) +
+      hex_tab.charAt((binarray[i>>2] >> ((3 - i%4)*8  )) & 0xF);
+  }
+  return str;
+}
+
+function binb2b64 (binarray) {
+  var tab = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  var str = "";
+  for(var i = 0; i < binarray.length * 4; i += 3)
+  {
+    var triplet = (((binarray[i   >> 2] >> 8 * (3 -  i   %4)) & 0xFF) << 16)
+      | (((binarray[i+1 >> 2] >> 8 * (3 - (i+1)%4)) & 0xFF) << 8 )
+      |  ((binarray[i+2 >> 2] >> 8 * (3 - (i+2)%4)) & 0xFF);
+    for(var j = 0; j < 4; j++)
+    {
+      if(i * 8 + j * 6 > binarray.length * 32) str += '=';
+      else str += tab.charAt((triplet >> 6*(3-j)) & 0x3F);
+    }
+  }
+  return str;
+}
+
+function hex_sha256(s){return binb2hex(core_sha256(str2binb(s),s.length * 8));}
+function b64_sha256(s){return binb2b64(core_sha256(str2binb(s),s.length * 8));}
+function str_sha256(s){return binb2str(core_sha256(str2binb(s),s.length * 8));}
+
+function sign(c, n) {
+  var e = str2binb(n)
+  var a = str2binb(c)
+  if (a.length > 16) {
+    a = core_sha256(a, c.length * 8)
+  }
+  var m = Array(16), f = Array(16)
+  for (var h = 0; h < 16; h++) {
+    m[h] = a[h] ^ 909522486;
+    f[h] = a[h] ^ 1549556828
+  }
+  var l = m.concat(e);
+  var d = core_sha256(l, 512 + n.length * 8);
+  var b = f.concat(d);
+  var k = core_sha256(b, 512 + 256);
+  var j = binb2b64(k);
+  return j
 }
