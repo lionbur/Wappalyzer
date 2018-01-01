@@ -447,13 +447,20 @@ function detectPrice(buyButton) {
     let element
 
     while (element = iterator.nextNode()) {
-      const { fontSize } = getComputedStyle(element)
+      let maxFontSize = toPixels(getComputedStyle(element).fontSize)
+      for (const child of element.children) {
+        maxFontSize = Math.max(maxFontSize, toPixels(getComputedStyle(child).fontSize))
+        if (hasLineThrough(child)) {
+          maxFontSize = 0
+          break
+        }
+      }
 
       results.push({
         element,
         depth: getDepth(element),
         offset: getOffset(element),
-        fontSize: toPixels(fontSize),
+        fontSize: maxFontSize,
       })
     }
 
@@ -637,6 +644,7 @@ function smartGet(obj, path) {
 }
 
 async function showBar() {
+  const forceArray = value => Array.isArray(value) ? value : [value]
   const queryParamsSorted = params => Object
     .entries(params)
     .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
@@ -691,12 +699,14 @@ async function showBar() {
       .from(xmlIterator(xml.documentElement, '/ItemSearchResponse/Items/Item'))
       .map(item => ({
         name: `[Amazon] ${getXmlString(item, 'ItemAttributes/Title')}`,
-        price: getXmlString(item, 'OfferSummary/LowestNewPrice/FormattedPrice'),
+        price: getXmlString(item, 'OfferSummary/LowestNewPrice/FormattedPrice')
+          || getXmlString(item, 'OfferSummary/Offer/FormattedPrice'),
         icon: {
           url: getXmlString(item, 'SmallImage/URL'),
           width: getXmlString(item, 'SmallImage/Width'),
           height: getXmlString(item, 'SmallImage/Height'),
-        }
+        },
+        viewItemUrl: getXmlString(item, 'ItemLinks/*[1]/URL')
       }))
       .concat(priceElement
         ? [{ name: productName, price: priceElement.innerText.trim(), isCurrent: true }]
@@ -731,13 +741,14 @@ async function showBar() {
     const ebayResults = smartGet(ebay, 'findItemsIneBayStoresResponse.searchResult.item')
     if (ebayResults) {
       offers = offers
-        .concat(ebayResults
+        .concat(forceArray(ebayResults)
           .map(result => ({
             name: `[eBay] ${smartGet(result, 'title')}`,
             price: mergePrice(smartGet(result, 'sellingStatus.currentPrice')),
             icon: {
               url: smartGet(result, 'galleryURL')
-            }
+            },
+            viewItemUrl: smartGet(result, 'viewItemURL')
           })))
     }
 
@@ -768,6 +779,8 @@ async function showBar() {
         flex-direction: row;
         align-items: center;
         max-height: 64px;
+        text-decoration: none;
+        color: black;
       }
       .sav-offer:nth-child(odd) {
         background-color: rgba(240,240,240,.95);
@@ -825,12 +838,12 @@ async function showBar() {
     bar.className = 'sav-bar'
 
     bar.innerHTML = offers
-      .map(({ name, price, isCurrent, icon }) => `
-<div class="sav-offer${isCurrent ? ' sav-current' :''}">
+      .map(({ name, price, isCurrent, icon, viewItemUrl }) => `
+<a class="sav-offer${isCurrent ? ' sav-current' :''}" href="${viewItemUrl}" target="_blank">
   ${icon ? `<img src="${icon && icon.url}"/>` : '<div class="sav-icon-placeholder"></div>'}
   <b>${price}</b>
   <span title="${name.replace(/"/g, '&quot;')}">${name}<span>
-</div>`)
+</a>`)
       .join('\n')
 
     document.body.appendChild(bar)
